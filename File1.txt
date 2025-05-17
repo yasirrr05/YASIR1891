@@ -1,0 +1,997 @@
+ ********************************************Very First Code******************************************************
+
+import wave
+import numpy as np
+from tkinter import *
+from tkinter import filedialog
+from PIL import Image, ImageTk
+import os
+from stegano.lsb import lsb
+import base64
+import struct
+
+# Tab Text
+root = Tk()
+root.title("Hybrid Steganography - Hide a Secret Text Message")
+root.geometry("700x600+150+180")
+root.resizable(False, False)
+root.config(bg="#2f4155")
+
+# Logo
+logo = PhotoImage(file="logo.png")
+Label(root, image=logo, bg="#2f4155").place(x=10, y=0)
+
+Label(root, text="Hybrid Steganography", bg="#2f4155", fg="white", font="arial 20 bold").place(x=80, y=20)
+
+# Global variables
+filename = ""
+s = None
+
+def showimage():
+    global filename
+    filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+                                          title='Select Image or Text File',
+                                          filetypes=(("PNG file", "*.png"),
+                                                     ("JPG File", "*.jpg"),
+                                                     ("Text file", "*.txt"),
+                                                     ("All files", "*.*")))
+
+    if filename.lower().endswith((".png", ".jpg")):
+        # Display image if it's an image file
+        img = Image.open(filename)
+        img = ImageTk.PhotoImage(img)
+        lbl.configure(image=img, width=250, height=250)
+        lbl.image = img
+    else:
+        lbl.image = None
+        lbl.config(text="Text File Selected", fg="yellow")
+
+
+#Audio Function 1
+def hide_audio_message(audio_path, message, output_path):
+    """Hide a message in an audio file using LSB."""
+    audio = wave.open(audio_path, 'rb')
+    params = audio.getparams()
+    frames = np.frombuffer(audio.readframes(audio.getnframes()), dtype=np.int16)
+    audio.close()
+
+    # Convert message to binary and add a delimiter
+    message += "<<<EOF>>>"  # Unique delimiter to identify message end
+    binary_message = ''.join(format(ord(char), '08b') for char in message)
+
+    if len(binary_message) > len(frames):
+        raise ValueError("Message is too long to encode in the selected audio file.")
+
+    # Embed binary message into audio frames
+    for i in range(len(binary_message)):
+        frames[i] = (frames[i] & ~1) | int(binary_message[i])
+
+    # Save the modified audio
+    encoded_audio = wave.open(output_path, 'wb')
+    encoded_audio.setparams(params)
+    encoded_audio.writeframes(frames.tobytes())
+    encoded_audio.close()
+
+def encrypt_message(message):
+    """Encrypt the message using base64 encoding for simple obfuscation."""
+    encoded_bytes = base64.b64encode(message.encode('utf-8'))
+    return encoded_bytes.decode('utf-8')
+
+def decrypt_message(encrypted_message):
+    """Decrypt the message using base64 decoding."""
+    decoded_bytes = base64.b64decode(encrypted_message.encode('utf-8'))
+    return decoded_bytes.decode('utf-8')
+
+
+def Hide():
+    global s
+    message = text1.get(1.0, END).strip()
+
+    if filename.lower().endswith((".png", ".jpg")):
+        # Hide using LSB for image files
+        s = lsb.hide(str(filename), message)
+        s.save("hidden.png")  # Save the new image after hiding
+        text1.delete(1.0, END)
+        text1.insert(END, "Data hidden in image.")
+
+    elif filename.lower().endswith(".txt"):
+        # Hide in text file by writing encrypted message
+        encrypted_message = encrypt_message(message)
+        with open("hidden_text.txt", "w") as file:
+            file.write(encrypted_message)
+        text1.delete(1.0, END)
+        text1.insert(END, "Data hidden in text file.")
+
+
+
+def HideAudio():
+    """Select an audio file and prepare to hide a message."""
+    global filename
+
+    # Ask the user to select an audio file
+    filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+                                          title='Select Audio File',
+                                          filetypes=(("WAV file", "*.wav"),))
+    if not filename:
+        text1.delete(1.0, END)
+        text1.insert(END, "No audio file selected.")
+        return
+
+    # Notify the user to enter the message
+    text1.delete(1.0, END)
+    text1.insert(END, "Audio file selected. Enter the message to hide, then click 'Save Audio'.")
+
+
+
+
+
+def hide_audio_message(audio_path, message, output_path):
+    """
+        Hides a message in an audio file by modifying the least significant bit of audio samples.
+
+        :param audio_path: Path to the original audio file.
+        :param message: Message to hide in the audio file.
+        :param output_path: Path to save the audio file with the hidden message.
+        """
+    # Convert the message to binary
+    message_binary = ''.join(format(ord(char), '08b') for char in message)
+    message_length = len(message_binary)
+
+    # Open the audio file
+    with wave.open(audio_path, 'rb') as audio:
+        params = audio.getparams()  # Get audio file parameters
+        num_channels = params.nchannels
+        sample_width = params.sampwidth
+        num_frames = params.nframes
+
+        # Ensure the file uses 16-bit samples
+        if sample_width != 2:
+            raise ValueError("Only 16-bit WAV files are supported.")
+
+        # Read all frames and unpack into a list of samples
+        frames = audio.readframes(num_frames)
+        frame_list = list(struct.unpack("<" + "h" * num_frames * num_channels, frames))
+
+    # Modify LSB of audio samples to embed the message
+    if len(message_binary) > len(frame_list):
+        raise ValueError("Message is too long to fit in the selected audio file.")
+
+    # Embed message length in the first 32 samples
+    length_binary = format(message_length, '032b')
+    for i in range(32):
+        frame_list[i] = (frame_list[i] & ~1) | int(length_binary[i])
+
+    # Embed the message in subsequent samples
+    for i in range(message_length):
+        frame_list[32 + i] = (frame_list[32 + i] & ~1) | int(message_binary[i])
+
+    # Pack the modified frames
+    modified_frames = struct.pack("<" + "h" * len(frame_list), *frame_list)
+
+    # Save the modified audio
+    with wave.open(output_path, 'wb') as modified_audio:
+        modified_audio.setparams(params)
+        modified_audio.writeframes(modified_frames)
+
+    print(f"Audio file saved as {output_path}.")
+
+
+def Show():
+    global filename
+    if filename.lower().endswith((".png", ".jpg")):
+        # Reveal hidden message in image
+        try:
+            clear_message = lsb.reveal(filename)
+            if clear_message is None or clear_message.strip() == "":
+                text1.delete(1.0, END)
+                text1.insert(END, "No hidden message found in the image!")
+            else:
+                text1.delete(1.0, END)
+                text1.insert(END, clear_message)
+        except Exception as e:
+            text1.delete(1.0, END)
+            text1.insert(END, f"Error: {str(e)}")
+
+    elif filename.lower().endswith(".txt"):
+        # Read and display decrypted message from text file
+        try:
+            with open(filename, "r") as file:
+                encrypted_message = file.read()
+            hidden_message = decrypt_message(encrypted_message)
+            text1.delete(1.0, END)
+            text1.insert(END, hidden_message)
+        except Exception as e:
+            text1.delete(1.0, END)
+            text1.insert(END, f"Error reading text file: {str(e)}")
+
+
+def reveal_audio_message(audio_path):
+    """Reveal a hidden message from an audio file."""
+    audio = wave.open(audio_path, 'rb')
+    frames = np.frombuffer(audio.readframes(audio.getnframes()), dtype=np.int16)
+    audio.close()
+
+    # Extract the LSBs from the audio frames
+    binary_message = ''.join(str(frame & 1) for frame in frames)
+
+    # Convert binary data to text
+    chars = [binary_message[i:i + 8] for i in range(0, len(binary_message), 8)]
+    decoded_message = ''.join([chr(int(char, 2)) for char in chars])
+
+    # Extract message up to the delimiter
+    return decoded_message.split("<<<EOF>>>")[0]
+
+def ShowAudio():
+    """Reveal a message from an audio file."""
+    global filename
+    filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+                                          title='Select Audio File',
+                                          filetypes=(("WAV file", "*.wav"),))
+    if not filename:
+        return
+
+    try:
+        hidden_message = reveal_audio_message(filename)
+        if hidden_message:
+            text1.delete(1.0, END)
+            text1.insert(END, hidden_message)
+        else:
+            text1.delete(1.0, END)
+            text1.insert(END, "No hidden message found in the audio file.")
+    except Exception as e:
+        text1.delete(1.0, END)
+        text1.insert(END, f"Error: {str(e)}")
+
+def save():
+    if filename.lower().endswith((".png", ".jpg")) and s is not None:
+        s.save("hidden.png")
+    elif filename.lower().endswith(".txt"):
+        text1.delete(1.0, END)
+        text1.insert(END, "Text file saved as 'hidden_text.txt'.")
+
+
+def save_audio():
+    """Save the hidden message into the audio file."""
+    global filename
+    if not filename:
+        text1.delete(1.0, END)
+        text1.insert(END, "No audio file selected.")
+        return
+
+    message = text1.get(1.0, END).strip()
+    if not message:
+        text1.delete(1.0, END)
+        text1.insert(END, "No message entered. Please enter a message.")
+        return
+
+    try:
+        output_path = filedialog.asksaveasfilename(defaultextension=".wav",
+                                                   filetypes=(("WAV file", "*.wav"),),
+                                                   title="Save Audio File")
+        if output_path:
+            hide_audio_message(filename, message, output_path)
+            text1.delete(1.0, END)
+            text1.insert(END, f"Data hidden in audio file. Saved as '{output_path}'.")
+    except Exception as e:
+        text1.delete(1.0, END)
+        text1.insert(END, f"Error: {str(e)}")
+
+
+# GUI elements
+
+# First Frame (Image Display)
+f = Frame(root, bd=3, bg="black", width=340, height=280, relief=GROOVE)
+f.place(x=10, y=80)
+lbl = Label(f, bg="black", text="No File Selected", font="arial 10", fg="white")
+lbl.place(x=40, y=10)
+
+# Second Frame (Text Area)
+frame2 = Frame(root, bd=3, width=340, height=280, bg="white", relief=GROOVE)
+frame2.place(x=350, y=80)
+text1 = Text(frame2, font="Robote 20", bg="white", fg="black", relief=GROOVE)
+text1.place(x=0, y=0, width=320, height=295)
+scrollbar1 = Scrollbar(frame2)
+scrollbar1.place(x=320, y=0, height=300)
+scrollbar1.configure(command=text1.yview)
+text1.configure(yscrollcommand=scrollbar1.set)
+
+# Third Frame (File Operations)
+frame3 = Frame(root, bd=3, bg="#2f4155", width=330, height=100, relief=GROOVE)
+frame3.place(x=10, y=370)
+Button(frame3, text="Open File", width=10, height=2, font="arial 14 bold", command=showimage).place(x=20, y=30)
+Button(frame3, text="Save", width=10, height=2, font="arial 14 bold", command=save).place(x=180, y=30)
+Label(frame3, text="Image/Text File", bg="#2f4155", fg="yellow").place(x=20, y=5)
+
+
+# Fourth Frame (Steganography Operations)
+frame4 = Frame(root, bd=3, bg="#2f4155", width=330, height=100, relief=GROOVE)
+frame4.place(x=360, y=370)
+Button(frame4, text="Hide Data", width=10, height=2, font="arial 14 bold", command=Hide).place(x=20, y=30)
+Button(frame4, text="Show Data", width=10, height=2, font="arial 14 bold", command=Show).place(x=180, y=30)
+Label(frame4, text="Hide/Reveal Message", bg="#2f4155", fg="yellow").place(x=20, y=5)
+
+# Update GUI to include Audio Steganography options
+frame5 = Frame(root, bd=3, bg="#2f4155", width=500, height=100, relief=GROOVE)
+frame5.place(x=10, y=470)
+Label(frame5, text="Audio Steganography", bg="#2f4155", fg="yellow").place(x=10, y=10)
+Button(frame5, text="Hide in Audio", width=10, height=2, font="arial 14 bold", command=HideAudio).place(x=10, y=30)
+Button(frame5, text="Show from Audio", width=15, height=2, font="arial 14 bold", command=ShowAudio).place(x=150, y=30)
+Button(frame5, text="Save Audio", width=10, height=2, font="arial 14 bold", command=save_audio).place(x=350, y=30)
+
+
+root.mainloop()
+
+
+
+
+********************************************2nd Code******************************************************
+
+import wave
+import numpy as np
+import os
+import struct
+from tkinter import *
+from tkinter import filedialog
+from PIL import Image, ImageTk
+from stegano.lsb import lsb
+import base64
+
+# Initialize the main window
+root = Tk()
+root.title("Hybrid Steganography")
+root.geometry("700x600+150+180")
+root.resizable(False, False)
+root.config(bg="#2f4155")
+
+# Global variables
+filename = ""
+file_type = ""
+
+# Logo
+logo = PhotoImage(file="logo (2).png")
+Label(root, image=logo, bg="#2f4155").place(x=10, y=0)
+
+Label(root, text="Hybrid Steganography", bg="#2f4155", fg="white", font="arial 20 bold").place(x=80, y=20)
+
+# Function to open and select a file (image or audio)
+def select_file():
+    global filename, file_type
+    filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+                                          title="Select Image or Audio File",
+                                          filetypes=(("PNG Files", "*.png"),
+                                                     ("JPG Files", "*.jpg"),
+                                                     ("WAV Files", "*.wav"),
+                                                     ("All Files", "*.*")))
+    if filename:
+        if filename.lower().endswith((".png", ".jpg", ".jpeg")):
+            file_type = "image"
+            text1.delete(1.0, END)
+            text1.insert(END, "Image file selected. You can now hide data.")
+        elif filename.lower().endswith(".wav"):
+            file_type = "audio"
+            text1.delete(1.0, END)
+            text1.insert(END, "Audio file selected. You can now hide data.")
+        else:
+            file_type = ""
+            text1.delete(1.0, END)
+            text1.insert(END, "Unsupported file type. Please select a valid image or audio file.")
+
+# Function to hide data in the selected file and save it
+def hide_data():
+    global filename, file_type
+    if not filename:
+        text1.delete(1.0, END)
+        text1.insert(END, "No file selected. Please select a file first.")
+        return
+
+    message = text1.get(1.0, END).strip()
+    if not message:
+        text1.delete(1.0, END)
+        text1.insert(END, "No message entered. Please enter a message to hide.")
+        return
+
+    try:
+        if file_type == "image":
+            # Hide data in the image
+            output_path = filedialog.asksaveasfilename(defaultextension=".png",
+                                                       filetypes=(("PNG Files", "*.png"),),
+                                                       title="Save Image File")
+            if output_path:
+                lsb_image = lsb.hide(filename, message)
+                lsb_image.save(output_path)
+                text1.delete(1.0, END)
+                text1.insert(END, f"Image with hidden data saved as '{output_path}'.")
+        elif file_type == "audio":
+            # Save the audio with hidden data to a temporary file
+            output_path = filedialog.asksaveasfilename(defaultextension=".wav",
+                                                       filetypes=(("WAV Files", "*.wav"),),
+                                                       title="Save Audio File")
+            if output_path:
+                hide_audio_message(filename, message, output_path)
+                text1.delete(1.0, END)
+                text1.insert(END, f"Audio with hidden data saved as '{output_path}'.")
+        else:
+            text1.delete(1.0, END)
+            text1.insert(END, "Unsupported file type.")
+    except Exception as e:
+        text1.delete(1.0, END)
+        text1.insert(END, f"Error: {str(e)}")
+
+# Function to reveal the hidden data from the selected file
+def show_data():
+    global filename, file_type
+    filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+                                          title="Select Image or Audio File",
+                                          filetypes=(("PNG Files", "*.png"),
+                                                     ("JPG Files", "*.jpg"),
+                                                     ("WAV Files", "*.wav"),
+                                                     ("All Files", "*.*")))
+    if not filename:
+        text1.delete(1.0, END)
+        text1.insert(END, "No file selected.")
+        return
+
+    try:
+        if filename.lower().endswith((".png", ".jpg", ".jpeg")):
+            hidden_message = lsb.reveal(filename)
+            if hidden_message:
+                text1.delete(1.0, END)
+                text1.insert(END, f"Hidden message: {hidden_message}")
+            else:
+                text1.delete(1.0, END)
+                text1.insert(END, "No hidden message found.")
+        elif filename.lower().endswith(".wav"):
+            hidden_message = reveal_audio_message(filename)
+            if hidden_message:
+                text1.delete(1.0, END)
+                text1.insert(END, f"Hidden message: {hidden_message}")
+            else:
+                text1.delete(1.0, END)
+                text1.insert(END, "No hidden message found.")
+        else:
+            text1.delete(1.0, END)
+            text1.insert(END, "Unsupported file type.")
+    except Exception as e:
+        text1.delete(1.0, END)
+        text1.insert(END, f"Error: {str(e)}")
+
+# Function to hide a message in an audio file using LSB
+def hide_audio_message(audio_path, message, output_path):
+    """Hides a message in an audio file by modifying the LSB of audio samples."""
+    message_binary = ''.join(format(ord(char), '08b') for char in message)
+    message_length = len(message_binary)
+
+    with wave.open(audio_path, 'rb') as audio:
+        params = audio.getparams()
+        num_channels = params.nchannels
+        sample_width = params.sampwidth
+        num_frames = params.nframes
+
+        if sample_width != 2:
+            raise ValueError("Only 16-bit WAV files are supported.")
+
+        frames = audio.readframes(num_frames)
+        frame_list = list(struct.unpack("<" + "h" * num_frames * num_channels, frames))
+
+    if len(message_binary) > len(frame_list):
+        raise ValueError("Message is too long to fit in the selected audio file.")
+
+    length_binary = format(message_length, '032b')
+    for i in range(32):
+        frame_list[i] = (frame_list[i] & ~1) | int(length_binary[i])
+
+    for i in range(message_length):
+        frame_list[32 + i] = (frame_list[32 + i] & ~1) | int(message_binary[i])
+
+    modified_frames = struct.pack("<" + "h" * len(frame_list), *frame_list)
+
+    with wave.open(output_path, 'wb') as modified_audio:
+        modified_audio.setparams(params)
+        modified_audio.writeframes(modified_frames)
+
+def reveal_audio_message(audio_path):
+    """Reveal a hidden message from an audio file."""
+    audio = wave.open(audio_path, 'rb')
+    frames = np.frombuffer(audio.readframes(audio.getnframes()), dtype=np.int16)
+    audio.close()
+
+    # Extract the LSBs from the audio frames
+    binary_message = ''.join(str(frame & 1) for frame in frames)
+
+    # Convert binary data to text
+    chars = [binary_message[i:i + 8] for i in range(0, len(binary_message), 8)]
+    decoded_message = ''.join([chr(int(char, 2)) for char in chars])
+
+    # Extract message up to the delimiter
+    return decoded_message.split("<<<EOF>>>")[0]
+
+# GUI elements
+frame1 = Frame(root, bd=3, bg="black", width=340, height=280, relief=GROOVE)
+frame1.place(x=10, y=80)
+lbl = Label(frame1, bg="black", text="No File Selected", font="arial 10", fg="white")
+lbl.place(x=40, y=10)
+
+frame2 = Frame(root, bd=3, width=340, height=280, bg="white", relief=GROOVE)
+frame2.place(x=350, y=80)
+text1 = Text(frame2, font="Robote 20", bg="white", fg="black", relief=GROOVE)
+text1.place(x=0, y=0, width=320, height=295)
+scrollbar1 = Scrollbar(frame2)
+scrollbar1.place(x=320, y=0, height=300)
+scrollbar1.configure(command=text1.yview)
+text1.configure(yscrollcommand=scrollbar1.set)
+
+frame3 = Frame(root, bd=3, bg="#2f4155", width=500, height=100, relief=GROOVE)
+frame3.place(x=10, y=370)
+
+Label(frame3, text="Image / Audio Files", bg="#2f4155", fg="yellow").place(x=20, y=5)
+Button(frame3, text="Select File", width=10, height=2, font="arial 14 bold", command=select_file).place(x=10, y=30)
+Button(frame3, text="Hide Data", width=10, height=2, font="arial 14 bold", command=hide_data).place(x=150, y=30)
+Button(frame3, text="Show Data", width=10, height=2, font="arial 14 bold", command=show_data).place(x=290, y=30)
+
+root.mainloop()
+
+
+******************************************************************************************************************
+************************************************************************************************************************************************************************************************************************************
+# import wave
+# import numpy as np
+# import os
+# import struct
+# from tkinter import *
+# from tkinter import filedialog
+# #from PIL import Image, ImageTk
+# from stegano.lsb import lsb
+# #import base64
+#
+# # Initialize the main window
+# root = Tk()
+# root.title("Hybrid Steganography")
+# root.geometry("700x600+150+180")
+# root.resizable(False, False)
+# root.config(bg="#2f4155")
+#
+# # Global variables
+# filename = ""
+# file_type = ""
+#
+# # Logo
+# logo = PhotoImage(file="logo (2).png")
+# Label(root, image=logo, bg="#2f4155").place(x=10, y=0)
+#
+# Label(root, text="Hybrid Steganography", bg="#2f4155", fg="white", font="arial 20 bold").place(x=80, y=20)
+#
+# # Function to open and select a file (image or audio)
+# def select_file():
+#     global filename, file_type
+#     filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+#                                           title="Select Image or Audio File",
+#                                           filetypes=(("PNG Files", "*.png"),
+#                                                      ("JPG Files", "*.jpg"),
+#                                                      ("WAV Files", "*.wav"),
+#                                                      ("All Files", "*.*")))
+#     if filename:
+#         if filename.lower().endswith((".png", ".jpg", ".jpeg")):
+#             file_type = "image"
+#             text1.delete(1.0, END)
+#             text1.insert(END, "Image file selected. You can now hide data.")
+#         elif filename.lower().endswith(".wav"):
+#             file_type = "audio"
+#             text1.delete(1.0, END)
+#             text1.insert(END, "Audio file selected. You can now hide data.")
+#         else:
+#             file_type = ""
+#             text1.delete(1.0, END)
+#             text1.insert(END, "Unsupported file type. Please select a valid image or audio file.")
+#
+# # Function to hide data in the selected file and save it
+# def hide_data():
+#     global filename, file_type
+#     if not filename:
+#         text1.delete(1.0, END)
+#         text1.insert(END, "No file selected. Please select a file first.")
+#         return
+#
+#     message = text1.get(1.0, END).strip()
+#     if not message:
+#         text1.delete(1.0, END)
+#         text1.insert(END, "No message entered. Please enter a message to hide.")
+#         return
+#
+#     try:
+#         if file_type == "image":
+#             # Hide data in the image
+#             output_path = filedialog.asksaveasfilename(defaultextension=".png",
+#                                                        filetypes=(("PNG Files", "*.png"),),
+#                                                        title="Save Image File")
+#             if output_path:
+#                 lsb_image = lsb.hide(filename, message)
+#                 lsb_image.save(output_path)
+#                 text1.delete(1.0, END)
+#                 text1.insert(END, f"Image with hidden data saved as '{output_path}'.")
+#         elif file_type == "audio":
+#             # Save the audio with hidden data to a temporary file
+#             output_path = filedialog.asksaveasfilename(defaultextension=".wav",
+#                                                        filetypes=(("WAV Files", "*.wav"),),
+#                                                        title="Save Audio File")
+#             if output_path:
+#                 hide_audio_message(filename, message, output_path)
+#                 text1.delete(1.0, END)
+#                 text1.insert(END, f"Audio with hidden data saved as '{output_path}'.")
+#         else:
+#             text1.delete(1.0, END)
+#             text1.insert(END, "Unsupported file type.")
+#     except Exception as e:
+#         text1.delete(1.0, END)
+#         text1.insert(END, f"Error: {str(e)}")
+#
+# # Function to reveal the hidden data from the selected file
+# def show_data():
+#     global filename, file_type
+#     filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+#                                           title="Select Image or Audio File",
+#                                           filetypes=(("PNG Files", "*.png"),
+#                                                      ("JPG Files", "*.jpg"),
+#                                                      ("WAV Files", "*.wav"),
+#                                                      ("All Files", "*.*")))
+#     if not filename:
+#         text1.delete(1.0, END)
+#         text1.insert(END, "No file selected.")
+#         return
+#
+#     try:
+#         if filename.lower().endswith((".png", ".jpg", ".jpeg")):
+#             hidden_message = lsb.reveal(filename)
+#             if hidden_message:
+#                 text1.delete(1.0, END)
+#                 text1.insert(END, f"Hidden message: {hidden_message}")
+#             else:
+#                 text1.delete(1.0, END)
+#                 text1.insert(END, "No hidden message found.")
+#         elif filename.lower().endswith(".wav"):
+#             hidden_message = reveal_audio_message(filename)
+#             if hidden_message:
+#                 text1.delete(1.0, END)
+#                 text1.insert(END, f"Hidden message: {hidden_message}")
+#             else:
+#                 text1.delete(1.0, END)
+#                 text1.insert(END, "No hidden message found.")
+#         else:
+#             text1.delete(1.0, END)
+#             text1.insert(END, "Unsupported file type.")
+#     except Exception as e:
+#         text1.delete(1.0, END)
+#         text1.insert(END, f"Error: {str(e)}")
+#
+# Function to hide a message in an audio file using LSB
+# def hide_audio_message(audio_path, message, output_path):
+#     """Hides a message in an audio file by modifying the LSB of audio samples."""
+#     message_binary = ''.join(format(ord(char), '08b') for char in message)
+#     message_length = len(message_binary)
+#
+#     with wave.open(audio_path, 'rb') as audio:
+#         params = audio.getparams()
+#         num_channels = params.nchannels
+#         sample_width = params.sampwidth
+#         num_frames = params.nframes
+#
+#         if sample_width != 2:
+#             raise ValueError("Only 16-bit WAV files are supported.")
+#
+#         frames = audio.readframes(num_frames)
+#         frame_list = list(struct.unpack("<" + "h" * num_frames * num_channels, frames))
+#
+#     if len(message_binary) > len(frame_list):
+#         raise ValueError("Message is too long to fit in the selected audio file.")
+#
+#     length_binary = format(message_length, '032b')
+#     for i in range(32):
+#         frame_list[i] = (frame_list[i] & ~1) | int(length_binary[i])
+#
+#     for i in range(message_length):
+#         frame_list[32 + i] = (frame_list[32 + i] & ~1) | int(message_binary[i])
+#
+#     modified_frames = struct.pack("<" + "h" * len(frame_list), *frame_list)
+#
+#     with wave.open(output_path, 'wb') as modified_audio:
+#         modified_audio.setparams(params)
+#         modified_audio.writeframes(modified_frames)
+# #
+# def reveal_audio_message(audio_path):
+#     """Reveal a hidden message from an audio file."""
+#     audio = wave.open(audio_path, 'rb')
+#     frames = np.frombuffer(audio.readframes(audio.getnframes()), dtype=np.int16)
+#     audio.close()
+#
+#     # Extract the LSBs from the audio frames
+#     binary_message = ''.join(str(frame & 1) for frame in frames)
+#
+#     # Convert binary data to text
+#     chars = [binary_message[i:i + 8] for i in range(0, len(binary_message), 8)]
+#     decoded_message = ''.join([chr(int(char, 2)) for char in chars])
+#
+#     # Extract message up to the delimiter
+#     return decoded_message.split("<<<EOF>>>")[0]
+#
+# # GUI elements
+# frame1 = Frame(root, bd=3, bg="black", width=340, height=280, relief=GROOVE)
+# frame1.place(x=10, y=80)
+# lbl = Label(frame1, bg="black", text="No File Selected", font="arial 10", fg="white")
+# lbl.place(x=40, y=10)
+#
+# frame2 = Frame(root, bd=3, width=340, height=280, bg="white", relief=GROOVE)
+# frame2.place(x=350, y=80)
+# text1 = Text(frame2, font="Robote 20", bg="white", fg="black", relief=GROOVE)
+# text1.place(x=0, y=0, width=320, height=295)
+# scrollbar1 = Scrollbar(frame2)
+# scrollbar1.place(x=320, y=0, height=300)
+# scrollbar1.configure(command=text1.yview)
+# text1.configure(yscrollcommand=scrollbar1.set)
+#
+# frame3 = Frame(root, bd=3, bg="#2f4155", width=500, height=100, relief=GROOVE)
+# frame3.place(x=10, y=370)
+#
+# Label(frame3, text="Image / Audio Files", bg="#2f4155", fg="yellow").place(x=20, y=5)
+# Button(frame3, text="Select File", width=10, height=2, font="arial 14 bold", command=select_file).place(x=10, y=30)
+# Button(frame3, text="Hide Data", width=10, height=2, font="arial 14 bold", command=hide_data).place(x=150, y=30)
+# Button(frame3, text="Show Data", width=10, height=2, font="arial 14 bold", command=show_data).place(x=290, y=30)
+#
+# root.mainloop()
+
+import wave
+import numpy as np
+import os
+import struct
+from tkinter import *
+from tkinter import filedialog
+from stegano.lsb import lsb
+from PIL import Image
+import cv2  # For accessing JPEG DCT coefficients
+
+# Initialize the main window
+root = Tk()
+root.title("Hybrid Steganography")
+root.geometry("700x600+150+180")
+root.resizable(False, False)
+root.config(bg="#2f4155")
+
+# Global variables
+filename = ""
+file_type = ""
+
+# Logo
+logo = PhotoImage(file="Logo.png")
+Label(root, image=logo, bg="#2f4155").place(x=10, y=0)
+
+Label(root, text="Hybrid Steganography", bg="#2f4155", fg="white", font="arial 20 bold").place(x=80, y=20)
+
+# Function to open and select a file (image or audio)
+def select_file():
+    global filename, file_type
+    filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+                                          title="Select Image or Audio File",
+                                          filetypes=(("PNG Files", "*.png"),
+                                                     ("JPG Files", "*.jpg"),
+                                                     ("WAV Files", "*.wav"),
+                                                     ("All Files", "*.*")))
+    if filename:
+        if filename.lower().endswith((".png", ".jpg", ".jpeg")):
+            file_type = "image"
+            text1.delete(1.0, END)
+            text1.insert(END, "Image file selected. You can now hide data.")
+        elif filename.lower().endswith(".wav"):
+            file_type = "audio"
+            text1.delete(1.0, END)
+            text1.insert(END, "Audio file selected. You can now hide data.")
+        else:
+            file_type = ""
+            text1.delete(1.0, END)
+            text1.insert(END, "Unsupported file type. Please select a valid image or audio file.")
+
+# Function to embed data into JPEG using DCT coefficients
+def hide_data_in_jpeg(jpeg_path, message, output_path):
+    # Convert the message to binary
+    message_binary = ''.join(format(ord(c), '08b') for c in message) + "11111111"  # EOF marker
+
+    # Read the JPEG file and access its DCT coefficients
+    image = cv2.imread(jpeg_path, cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError("Invalid JPEG file.")
+
+    # Convert to YCrCb color space and extract Y channel
+    ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+    y_channel = ycrcb[:, :, 0]
+
+    # Apply DCT block-wise (8x8 blocks)
+    height, width = y_channel.shape
+    message_index = 0
+    for i in range(0, height, 8):
+        for j in range(0, width, 8):
+            block = y_channel[i:i + 8, j:j + 8]
+            dct_block = cv2.dct(np.float32(block) - 128)  # Apply DCT
+
+            # Embed message bits in non-zero coefficients
+            flat_block = dct_block.flatten()
+            for k in range(len(flat_block)):
+                if flat_block[k] != 0 and message_index < len(message_binary):
+                    # Use round() to make it an integer, apply bitwise operation, then revert to float
+                    coeff = int(round(flat_block[k]))
+                    coeff = (coeff & ~1) | int(message_binary[message_index])  # Embed bit
+                    flat_block[k] = float(coeff)  # Convert back to float
+                    message_index += 1
+
+            # Reconstruct the block
+            dct_block = flat_block.reshape((8, 8))
+            y_channel[i:i + 8, j:j + 8] = cv2.idct(dct_block) + 128  # Apply inverse DCT
+
+            if message_index >= len(message_binary):
+                break
+        if message_index >= len(message_binary):
+            break
+
+    # Merge modified Y channel back and save the image
+    ycrcb[:, :, 0] = y_channel
+    modified_image = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+    cv2.imwrite(output_path, modified_image)
+
+
+# Function to extract hidden data from JPEG
+def reveal_data_in_jpeg(jpeg_path):
+    # Read the JPEG file and access its DCT coefficients
+    image = cv2.imread(jpeg_path, cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError("Invalid JPEG file.")
+
+    ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+    y_channel = ycrcb[:, :, 0]
+
+    # Extract LSBs from DCT coefficients
+    binary_message = ""
+    for i in range(0, y_channel.shape[0], 8):
+        for j in range(0, y_channel.shape[1], 8):
+            block = y_channel[i:i + 8, j:j + 8]
+            dct_block = cv2.dct(np.float32(block) - 128)
+
+            for coeff in dct_block.flatten():
+                if coeff != 0:
+                    coeff = int(round(coeff))  # Ensure integer for bitwise operations
+                    binary_message += str(coeff & 1)
+
+    # Convert binary to string
+    chars = [binary_message[i:i + 8] for i in range(0, len(binary_message), 8)]
+    message = ''.join([chr(int(char, 2)) for char in chars])
+
+    # Stop at EOF marker
+    return message.split(chr(255))[0]
+
+# Modify GUI Functions to Handle JPEG
+def hide_data():
+    global filename, file_type
+    if not filename:
+        text1.delete(1.0, END)
+        text1.insert(END, "No file selected. Please select a file first.")
+        return
+
+    message = text1.get(1.0, END).strip()
+    if not message:
+        text1.delete(1.0, END)
+        text1.insert(END, "No message entered. Please enter a message to hide.")
+        return
+
+    try:
+        if file_type == "image" and filename.lower().endswith((".jpg", ".jpeg")):
+            output_path = filedialog.asksaveasfilename(defaultextension=".jpg",
+                                                       filetypes=(("JPEG Files", "*.jpg"),),
+                                                       title="Save Image File")
+            if output_path:
+                hide_data_in_jpeg(filename, message, output_path)
+                text1.delete(1.0, END)
+                text1.insert(END, f"Image with hidden data saved as '{output_path}'.")
+        else:
+            text1.delete(1.0, END)
+            text1.insert(END, "Unsupported file type for hiding data.")
+    except Exception as e:
+        text1.delete(1.0, END)
+        text1.insert(END, f"Error: {str(e)}")
+
+        # Function to hide a message in an audio file using LSB
+        def hide_audio_message(audio_path, message, output_path):
+            """Hides a message in an audio file by modifying the LSB of audio samples."""
+            message_binary = ''.join(format(ord(char), '08b') for char in message)
+            message_length = len(message_binary)
+
+            with wave.open(audio_path, 'rb') as audio:
+                params = audio.getparams()
+                num_channels = params.nchannels
+                sample_width = params.sampwidth
+                num_frames = params.nframes
+
+                if sample_width != 2:
+                    raise ValueError("Only 16-bit WAV files are supported.")
+
+                frames = audio.readframes(num_frames)
+                frame_list = list(struct.unpack("<" + "h" * num_frames * num_channels, frames))
+
+            if len(message_binary) > len(frame_list):
+                raise ValueError("Message is too long to fit in the selected audio file.")
+
+            length_binary = format(message_length, '032b')
+            for i in range(32):
+                frame_list[i] = (frame_list[i] & ~1) | int(length_binary[i])
+
+            for i in range(message_length):
+                frame_list[32 + i] = (frame_list[32 + i] & ~1) | int(message_binary[i])
+
+            modified_frames = struct.pack("<" + "h" * len(frame_list), *frame_list)
+
+            with wave.open(output_path, 'wb') as modified_audio:
+                modified_audio.setparams(params)
+                modified_audio.writeframes(modified_frames)
+
+        #
+        def reveal_audio_message(audio_path):
+            """Reveal a hidden message from an audio file."""
+            audio = wave.open(audio_path, 'rb')
+            frames = np.frombuffer(audio.readframes(audio.getnframes()), dtype=np.int16)
+            audio.close()
+
+            # Extract the LSBs from the audio frames
+            binary_message = ''.join(str(frame & 1) for frame in frames)
+
+            # Convert binary data to text
+            chars = [binary_message[i:i + 8] for i in range(0, len(binary_message), 8)]
+            decoded_message = ''.join([chr(int(char, 2)) for char in chars])
+
+            # Extract message up to the delimiter
+            return decoded_message.split("<<<EOF>>>")[0]
+
+def show_data():
+    global filename, file_type
+    filename = filedialog.askopenfilename(initialdir=os.getcwd(),
+                                          title="Select Image or Audio File",
+                                          filetypes=(("PNG Files", "*.png"),
+                                                     ("JPG Files", "*.jpg"),
+                                                     ("WAV Files", "*.wav"),
+                                                     ("All Files", "*.*")))
+    if not filename:
+        text1.delete(1.0, END)
+        text1.insert(END, "No file selected.")
+        return
+
+    try:
+        if filename.lower().endswith((".jpg", ".jpeg")):
+            hidden_message = reveal_data_in_jpeg(filename)
+            text1.delete(1.0, END)
+            text1.insert(END, f"Hidden message: {hidden_message}")
+        else:
+            text1.delete(1.0, END)
+            text1.insert(END, "Unsupported file type for extracting data.")
+    except Exception as e:
+        text1.delete(1.0, END)
+        text1.insert(END, f"Error: {str(e)}")
+
+# GUI elements
+frame1 = Frame(root, bd=3, bg="black", width=340, height=280, relief=GROOVE)
+frame1.place(x=10, y=80)
+lbl = Label(frame1, bg="black", text="No File Selected", font="arial 10", fg="white")
+lbl.place(x=40, y=10)
+
+frame2 = Frame(root, bd=3, width=340, height=280, bg="white", relief=GROOVE)
+frame2.place(x=350, y=80)
+text1 = Text(frame2, font="Robote 20", bg="white", fg="black", relief=GROOVE)
+text1.place(x=0, y=0, width=320, height=295)
+scrollbar1 = Scrollbar(frame2)
+scrollbar1.place(x=320, y=0, height=300)
+scrollbar1.configure(command=text1.yview)
+text1.configure(yscrollcommand=scrollbar1.set)
+
+frame3 = Frame(root, bd=3, bg="#2f4155", width=500, height=100, relief=GROOVE)
+frame3.place(x=10, y=370)
+
+Label(frame3, text="Image / Audio Files", bg="#2f4155", fg="yellow").place(x=20, y=5)
+Button(frame3, text="Select File", width=10, height=2, font="arial 14 bold", command=select_file).place(x=10, y=30)
+Button(frame3, text="Hide Data", width=10, height=2, font="arial 14 bold", command=hide_data).place(x=150, y=30)
+Button(frame3, text="Show Data", width=10, height=2, font="arial 14 bold", command=show_data).place(x=290, y=30)
+
+root.mainloop()
+
+
